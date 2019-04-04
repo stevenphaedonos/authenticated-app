@@ -1,0 +1,10 @@
+# dependencies
+/node_modules
+
+# build files
+/build
+/cjs
+/esm
+
+# operating system files
+.DS_Store
