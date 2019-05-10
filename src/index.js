@@ -1,7 +1,7 @@
 import React, { Component } from "react";
 import * as Msal from "msal";
 import PropTypes from "prop-types";
-import { Modal } from "antd";
+import { Modal, notification } from "antd";
 
 const expiry = token => {
   token = sessionStorage.getItem(token);
@@ -29,28 +29,26 @@ class Authentication extends Component {
     WrappedComponent: PropTypes.any.isRequired,
     landingPage: PropTypes.any.isRequired,
     msalConfig: PropTypes.shape({
-      clientId: PropTypes.string.isRequired,
-      authority: PropTypes.string.isRequired,
-      redirectUri: PropTypes.string.isRequired,
-      storeAuthStateInCookie: PropTypes.bool
+      auth: PropTypes.shape({
+        clientId: PropTypes.string.isRequired
+      }),
+      cache: PropTypes.object,
+      system: PropTypes.object
     }).isRequired,
     scopes: PropTypes.arrayOf(PropTypes.string),
-    authCallback: PropTypes.func,
-    refreshAccess: PropTypes.func
+    onAuthSuccess: PropTypes.func.isRequired,
+    onAuthError: PropTypes.func.isRequired,
+    refreshAccess: PropTypes.func,
+    tokenCheckFrequency: PropTypes.number
   };
 
   static defaultProps = {
-    authCallback: () => {},
-    scopes: ["https://graph.microsoft.com/user.read"]
+    scopes: ["user.read"],
+    tokenCheckFrequency: 2.5
   };
 
   componentWillMount() {
-    const {
-      clientId,
-      authority,
-      redirectUri,
-      storeAuthStateInCookie
-    } = this.props.msalConfig;
+    const { msalConfig } = this.props;
 
     const hasAccessToken = expiry("access") > 0;
     const hasRefreshToken = expiry("refresh") > 0;
@@ -64,27 +62,66 @@ class Authentication extends Component {
       this.checkAccessTokenExpiry();
     }
 
+    const msalInstance = new Msal.UserAgentApplication({
+      cache: { cacheLocation: "sessionStorage" },
+      ...msalConfig
+    });
+
     this.setState({
       authenticated: hasAccessToken || hasRefreshToken,
-      userAgentApplication: new Msal.UserAgentApplication(
-        clientId,
-        authority,
-        this.tokenReceivedCallback,
-        {
-          redirectUri: redirectUri,
-          postLogoutRedirectUri: redirectUri,
-          cacheLocation: "sessionStorage",
-          storeAuthStateInCookie: storeAuthStateInCookie || true
-        }
-      )
+      userAgentApplication: msalInstance
     });
   }
 
-  handleLogin = () => {
-    const { msalConfig } = this.props;
-    const { userAgentApplication } = this.state;
+  handleLogin = async () => {
+    const { scopes, onAuthSuccess, onAuthError } = this.props;
+    const { userAgentApplication, expiryWarningVisible } = this.state;
 
-    userAgentApplication.loginRedirect(msalConfig.scopes);
+    this.setState({ error: null });
+
+    try {
+      await userAgentApplication.loginPopup({
+        scopes,
+        prompt: "select_account"
+      });
+
+      this.setState({ loading: true });
+      const response = await this.getAzureToken();
+      const { idToken: azureIdToken, accessToken: azureAccessToken } = response;
+
+      const data = await onAuthSuccess(
+        azureIdToken.rawIdToken,
+        azureAccessToken
+      );
+      const { accessToken, refreshToken, extras } = data;
+
+      if (refreshToken) {
+        sessionStorage.setItem("refresh", refreshToken);
+        sessionStorage.setItem("access", accessToken);
+        this.checkRefreshTokenExpiry();
+      } else if (accessToken) {
+        sessionStorage.setItem("access", accessToken);
+        this.checkAccessTokenExpiry();
+      }
+
+      if (expiryWarningVisible)
+        notification["success"]({
+          message: "Your session has been extended"
+        })
+
+      this.setState({
+        loading: false,
+        authenticated: true,
+        extras,
+        expiryWarningVisible: false
+      });
+    } catch (error) {
+      this.setState({
+        loading: false,
+        error: onAuthError(error),
+        expiryWarningVisible: false
+      });
+    }
   };
 
   handleLogout = () => {
@@ -102,48 +139,31 @@ class Authentication extends Component {
 
   getAzureToken = () => {
     const { scopes } = this.props;
-    const userAgentApplication = window.msal;
-    return userAgentApplication.acquireTokenSilent(scopes);
+    const { userAgentApplication } = this.state;
+    return userAgentApplication.acquireTokenSilent({ scopes });
   };
 
-  refreshAccessToken = () => {
+  refreshAccessToken = async () => {
     const { refreshAccess } = this.props;
 
-    refreshAccess(sessionStorage.getItem("refresh")).then(accessToken =>
-      sessionStorage.setItem("access", accessToken)
-    );
-  };
-
-  tokenReceivedCallback = (error, azureIdToken) => {
-    const { authCallback } = this.props;
-
-    this.setState({ loading: true });
-
-    this.getAzureToken().then(azureAccessToken => {
-      authCallback(azureIdToken, azureAccessToken)
-        .then(data => {
-          const { accessToken, refreshToken, extras } = data;
-
-          if (refreshToken) {
-            sessionStorage.setItem("refresh", refreshToken);
-            sessionStorage.setItem("access", accessToken);
-            this.checkRefreshTokenExpiry();
-          } else if (accessToken) {
-            sessionStorage.setItem("access", accessToken);
-            this.checkAccessTokenExpiry();
-          }
-
-          this.setState({ loading: false, authenticated: true, extras });
-        })
-        .catch(err => {
-          console.log(err);
-          this.setState({ loading: false, error: true });
-        });
-    });
+    try {
+      const accessToken = await refreshAccess(
+        sessionStorage.getItem("refresh")
+      );
+      sessionStorage.setItem("access", accessToken);
+    } catch {
+      this.handleTokenExpiry();
+      Modal.confirm({
+        icon: "warning",
+        title: "Your session has expired",
+        content: "Please log in again to continue.",
+        cancelButtonProps: { style: { display: "none" } }
+      });
+    }
   };
 
   checkRefreshTokenExpiry = () => {
-    const { refreshAccess } = this.props;
+    const { refreshAccess, tokenCheckFrequency } = this.props;
 
     if (!refreshAccess)
       throw new Error(
@@ -170,7 +190,6 @@ class Authentication extends Component {
           content: `You will be logged out in ${minutes} minutes
               and ${seconds} seconds. Press OK to extend your session.`,
           onOk: () => {
-            this.setState({ expiryWarningVisible: false });
             this.handleLogin();
           },
           onCancel: () => {
@@ -212,10 +231,12 @@ class Authentication extends Component {
           });
         }
       }
-    }, 2.5 * 60 * 1000); // Check every 2.5 minutes
+    }, tokenCheckFrequency * 60 * 1000); // Check every N minutes
   };
 
   checkAccessTokenExpiry = () => {
+    const { tokenCheckFrequency } = this.props;
+
     this.tokenExpiry = setInterval(() => {
       const secondsToExpiry = expiry("access");
 
@@ -268,7 +289,7 @@ class Authentication extends Component {
           });
         }
       }
-    }, 2.5 * 60 * 1000); // Check every 2.5 minutes
+    }, tokenCheckFrequency * 60 * 1000); // Check every N minutes
   };
 
   render() {
