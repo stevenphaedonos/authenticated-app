@@ -107,7 +107,7 @@ class Authentication extends Component {
       if (expiryWarningVisible)
         notification["success"]({
           message: "Your session has been extended"
-        })
+        });
 
       this.setState({
         loading: false,
@@ -137,6 +137,20 @@ class Authentication extends Component {
     this.setState({ authenticated: false });
   };
 
+  throwTokenError = () => {
+    this.handleTokenExpiry();
+    if (!this.state.expiryWarningVisible) {
+      this.setState({ expiryWarningVisible: true });
+      Modal.confirm({
+        icon: "warning",
+        title: "Your session has expired",
+        content: "Please log in again to continue.",
+        cancelButtonProps: { style: { display: "none" } },
+        onOk: () => this.setState({ expiryWarningVisible: false })
+      });
+    }
+  };
+
   getAzureToken = () => {
     const { scopes } = this.props;
     const { userAgentApplication } = this.state;
@@ -151,14 +165,9 @@ class Authentication extends Component {
         sessionStorage.getItem("refresh")
       );
       sessionStorage.setItem("access", accessToken);
+      return accessToken;
     } catch {
-      this.handleTokenExpiry();
-      Modal.confirm({
-        icon: "warning",
-        title: "Your session has expired",
-        content: "Please log in again to continue.",
-        cancelButtonProps: { style: { display: "none" } }
-      });
+      this.throwTokenError();
     }
   };
 
@@ -219,17 +228,7 @@ class Authentication extends Component {
         secondsToRefreshExpiry <= 0 &&
         !this.state.expiryWarningVisible
       ) {
-        if (!this.state.timeoutWarningVisible) {
-          this.setState({ timeoutWarningVisible: true });
-          this.handleTokenExpiry();
-          Modal.confirm({
-            icon: "warning",
-            title: "Your session has expired",
-            content: "Please log in again to continue.",
-            cancelButtonProps: { style: { display: "none" } },
-            onOk: () => this.setState({ timeoutWarningVisible: false })
-          });
-        }
+        this.throwTokenError();
       }
     }, tokenCheckFrequency * 60 * 1000); // Check every N minutes
   };
@@ -277,17 +276,7 @@ class Authentication extends Component {
           }
         }, 1000); // Update the countdown every 1 second
       } else if (secondsToExpiry <= 0 && !this.state.expiryWarningVisible) {
-        if (!this.state.timeoutWarningVisible) {
-          this.setState({ timeoutWarningVisible: true });
-          this.handleTokenExpiry();
-          Modal.confirm({
-            icon: "warning",
-            title: "Your session has expired",
-            content: "Please log in again to continue.",
-            cancelButtonProps: { style: { display: "none" } },
-            onOk: () => this.setState({ timeoutWarningVisible: false })
-          });
-        }
+        this.throwTokenError();
       }
     }, tokenCheckFrequency * 60 * 1000); // Check every N minutes
   };
@@ -300,6 +289,12 @@ class Authentication extends Component {
       return (
         <WrappedComponent
           getAzureToken={this.getAzureToken}
+          isTokenExpired={() => ({
+            access: expiry("access") > 0,
+            refresh: expiry("refresh") > 0
+          })}
+          refreshAccessToken={this.refreshAccessToken}
+          throwTokenError={this.throwTokenError}
           logout={this.handleLogout}
           {...extras}
         />
