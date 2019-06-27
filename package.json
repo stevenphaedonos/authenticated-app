@@ -1,7 +1,7 @@
 {
   "name": "react-msal-jwt",
   "description": "A React Higher Order Component that provides MSAL authentication, JWT token refresh/expiry utilities, and a customizable landing page",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/stevenphaedonos/react-msal-jwt.git"
@@ -27,7 +27,7 @@
     "antd": ">= 3.0.0"
   },
   "dependencies": {
-    "msal": "^1.0.1"
+    "msal": "^1.0.2"
   },
   "devDependencies": {
     "@babel/core": "^7.4.3",
