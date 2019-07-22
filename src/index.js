@@ -3,6 +3,27 @@ import * as Msal from "msal";
 import PropTypes from "prop-types";
 import { Modal, notification } from "antd";
 
+const isIE = () => {
+  const ua = window.navigator.userAgent;
+  const msie = ua.indexOf("MSIE ") > -1;
+  const msie11 = ua.indexOf("Trident/") > -1;
+  const isEdge = ua.indexOf("Edge/") > -1;
+
+  return msie || msie11 || isEdge;
+};
+
+const requiresInteraction = errorMessage => {
+  if (!errorMessage || !errorMessage.length) {
+    return false;
+  }
+
+  return (
+    errorMessage.indexOf("consent_required") > -1 ||
+    errorMessage.indexOf("interaction_required") > -1 ||
+    errorMessage.indexOf("login_required") > -1
+  );
+};
+
 const expiry = token => {
   token = sessionStorage.getItem(token);
   if (!token) return 0;
@@ -47,8 +68,20 @@ class Authentication extends Component {
     tokenCheckFrequency: 2.5
   };
 
+  constructor(props) {
+    super(props);
+
+    this.msalInstance = new Msal.UserAgentApplication({
+      cache: {
+        cacheLocation: "sessionStorage",
+        storeAuthStateInCookie: isIE()
+      },
+      ...props.msalConfig
+    });
+  }
+
   componentWillMount() {
-    const { msalConfig } = this.props;
+    const { onAuthError } = this.props;
 
     const hasAccessToken = expiry("access") > 0;
     const hasRefreshToken = expiry("refresh") > 0;
@@ -62,59 +95,46 @@ class Authentication extends Component {
       this.checkAccessTokenExpiry();
     }
 
-    const msalInstance = new Msal.UserAgentApplication({
-      cache: { cacheLocation: "sessionStorage" },
-      ...msalConfig
+    this.msalInstance.handleRedirectCallback(error => {
+      if (error) onAuthError(error);
     });
 
+    const account = this.msalInstance.getAccount();
+    if (account && !(hasAccessToken || hasRefreshToken))
+      this.getApplicationTokens();
+
     this.setState({
-      authenticated: hasAccessToken || hasRefreshToken,
-      userAgentApplication: msalInstance
+      authenticated: hasAccessToken || hasRefreshToken
     });
   }
 
   handleLogin = async () => {
-    const { scopes, onAuthSuccess, onAuthError } = this.props;
-    const { userAgentApplication, expiryWarningVisible } = this.state;
+    const { scopes, onAuthError } = this.props;
+    const { expiryWarningVisible } = this.state;
 
     this.setState({ error: null });
 
     try {
-      await userAgentApplication.loginPopup({
+      if (isIE()) {
+        return this.msalInstance.loginRedirect({
+          scopes,
+          prompt: "select_account"
+        });
+      }
+
+      const loginResponse = await this.msalInstance.loginPopup({
         scopes,
         prompt: "select_account"
       });
 
-      this.setState({ loading: true });
-      const response = await this.getAzureToken();
-      const { idToken: azureIdToken, accessToken: azureAccessToken } = response;
+      if (loginResponse) {
+        this.getApplicationTokens();
 
-      const data = await onAuthSuccess(
-        azureIdToken.rawIdToken,
-        azureAccessToken
-      );
-      const { accessToken, refreshToken, extras } = data;
-
-      if (refreshToken) {
-        sessionStorage.setItem("refresh", refreshToken);
-        sessionStorage.setItem("access", accessToken);
-        this.checkRefreshTokenExpiry();
-      } else if (accessToken) {
-        sessionStorage.setItem("access", accessToken);
-        this.checkAccessTokenExpiry();
+        if (expiryWarningVisible)
+          notification["success"]({
+            message: "Your session has been extended"
+          });
       }
-
-      if (expiryWarningVisible)
-        notification["success"]({
-          message: "Your session has been extended"
-        });
-
-      this.setState({
-        loading: false,
-        authenticated: true,
-        extras,
-        expiryWarningVisible: false
-      });
     } catch (error) {
       this.setState({
         loading: false,
@@ -124,10 +144,37 @@ class Authentication extends Component {
     }
   };
 
+  getApplicationTokens = async () => {
+    const { onAuthSuccess } = this.props;
+
+    this.setState({ loading: true });
+    const response = await this.getAzureToken();
+
+    const { idToken: azureIdToken, accessToken: azureAccessToken } = response;
+
+    const data = await onAuthSuccess(azureIdToken.rawIdToken, azureAccessToken);
+    const { accessToken, refreshToken, extras } = data;
+
+    if (refreshToken) {
+      sessionStorage.setItem("refresh", refreshToken);
+      sessionStorage.setItem("access", accessToken);
+      this.checkRefreshTokenExpiry();
+    } else if (accessToken) {
+      sessionStorage.setItem("access", accessToken);
+      this.checkAccessTokenExpiry();
+    }
+
+    this.setState({
+      loading: false,
+      authenticated: true,
+      extras,
+      expiryWarningVisible: false
+    });
+  };
+
   handleLogout = () => {
-    const { userAgentApplication } = this.state;
     sessionStorage.clear();
-    userAgentApplication.logout();
+    this.msalInstance.logout();
   };
 
   handleTokenExpiry = () => {
@@ -151,10 +198,16 @@ class Authentication extends Component {
     }
   };
 
-  getAzureToken = () => {
+  getAzureToken = async () => {
     const { scopes } = this.props;
-    const { userAgentApplication } = this.state;
-    return userAgentApplication.acquireTokenSilent({ scopes });
+
+    return this.msalInstance.acquireTokenSilent({ scopes }).catch(error => {
+      if (requiresInteraction(error.errorCode)) {
+        return isIE()
+          ? this.msalInstance.acquireTokenRedirect(request)
+          : this.msalInstance.acquireTokenPopup(request);
+      }
+    });
   };
 
   refreshAccessToken = async () => {
