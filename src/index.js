@@ -72,12 +72,15 @@ class Authentication extends Component {
     super(props);
 
     this.msalInstance = new Msal.UserAgentApplication({
+      navigateToLoginRequestUrl: false,
       cache: {
         cacheLocation: "sessionStorage",
         storeAuthStateInCookie: isIE()
       },
       ...props.msalConfig
     });
+
+    this.state = {};
   }
 
   componentWillMount() {
@@ -100,6 +103,7 @@ class Authentication extends Component {
     });
 
     const account = this.msalInstance.getAccount();
+
     if (account && !(hasAccessToken || hasRefreshToken))
       this.getApplicationTokens();
 
@@ -110,42 +114,35 @@ class Authentication extends Component {
 
   handleLogin = async () => {
     const { scopes, onAuthError } = this.props;
-    const { expiryWarningVisible } = this.state;
 
     this.setState({ error: null });
 
-    try {
-      if (isIE()) {
-        return this.msalInstance.loginRedirect({
-          scopes,
-          prompt: "select_account"
-        });
-      }
-
-      const loginResponse = await this.msalInstance.loginPopup({
+    if (isIE()) {
+      return this.msalInstance.loginRedirect({
         scopes,
         prompt: "select_account"
       });
-
-      if (loginResponse) {
-        this.getApplicationTokens();
-
-        if (expiryWarningVisible)
-          notification["success"]({
-            message: "Your session has been extended"
-          });
-      }
-    } catch (error) {
-      this.setState({
-        loading: false,
-        error: onAuthError(error),
-        expiryWarningVisible: false
-      });
     }
+
+    const loginResponse = await this.msalInstance
+      .loginPopup({
+        scopes,
+        prompt: "select_account"
+      })
+      .catch(error => {
+        this.setState({
+          loading: false,
+          error: onAuthError(error),
+          expiryWarningVisible: false
+        });
+      });
+
+    if (loginResponse) this.getApplicationTokens();
   };
 
   getApplicationTokens = async () => {
     const { onAuthSuccess } = this.props;
+    const { expiryWarningVisible } = this.state;
 
     this.setState({ loading: true });
     const response = await this.getAzureToken();
@@ -163,6 +160,11 @@ class Authentication extends Component {
       sessionStorage.setItem("access", accessToken);
       this.checkAccessTokenExpiry();
     }
+
+    if (expiryWarningVisible)
+      notification["success"]({
+        message: "Your session has been extended"
+      });
 
     this.setState({
       loading: false,
@@ -213,15 +215,14 @@ class Authentication extends Component {
   refreshAccessToken = async () => {
     const { refreshAccess } = this.props;
 
-    try {
-      const accessToken = await refreshAccess(
-        sessionStorage.getItem("refresh")
-      );
-      sessionStorage.setItem("access", accessToken);
-      return accessToken;
-    } catch {
+    const accessToken = await refreshAccess(
+      sessionStorage.getItem("refresh")
+    ).catch(() => {
       this.throwTokenError();
-    }
+    });
+
+    sessionStorage.setItem("access", accessToken);
+    return accessToken;
   };
 
   checkRefreshTokenExpiry = () => {
