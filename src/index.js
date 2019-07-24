@@ -170,8 +170,14 @@ class Authentication extends Component {
     return this.msalInstance.acquireTokenSilent({ scopes }).catch(error => {
       if (requiresInteraction(error.errorCode)) {
         return isIE()
-          ? this.msalInstance.acquireTokenRedirect(request)
-          : this.msalInstance.acquireTokenPopup(request);
+          ? this.msalInstance.acquireTokenRedirect({
+              scopes,
+              prompt: "select_account"
+            })
+          : this.msalInstance.acquireTokenPopup({
+              scopes,
+              prompt: "select_account"
+            });
       }
     });
   };
