@@ -1,49 +1,10 @@
 import React, { Component } from "react";
-import * as Msal from "msal";
 import PropTypes from "prop-types";
+
+import { UserAgentApplication } from "msal";
 import { Modal, notification } from "antd";
 
-const isIE = () => {
-  const ua = window.navigator.userAgent;
-  const msie = ua.indexOf("MSIE ") > -1;
-  const msie11 = ua.indexOf("Trident/") > -1;
-  const isEdge = ua.indexOf("Edge/") > -1;
-
-  return msie || msie11 || isEdge;
-};
-
-const requiresInteraction = errorMessage => {
-  if (!errorMessage || !errorMessage.length) {
-    return false;
-  }
-
-  return (
-    errorMessage.indexOf("consent_required") > -1 ||
-    errorMessage.indexOf("interaction_required") > -1 ||
-    errorMessage.indexOf("login_required") > -1
-  );
-};
-
-const expiry = token => {
-  token = sessionStorage.getItem(token);
-  if (!token) return 0;
-
-  const expiresAt = new Date(
-    JSON.parse(window.atob(token.split(".")[1])).exp * 1000
-  );
-  const currentTime = new Date();
-
-  return (expiresAt.getTime() - currentTime.getTime()) / 1000; // Seconds to expiry
-};
-
-const timer = token => {
-  const secondsToExpiry = expiry(token);
-  const roundedMinutes = Math.max(Math.floor(secondsToExpiry / 60), 0);
-  return [
-    roundedMinutes, // Rounded minutes to expiry
-    Math.trunc(secondsToExpiry - roundedMinutes * 60) // Remaining seconds
-  ];
-};
+import { isIE, requiresInteraction, timer, expiry } from "./utils";
 
 class Authentication extends Component {
   static propTypes = {
@@ -71,19 +32,22 @@ class Authentication extends Component {
   constructor(props) {
     super(props);
 
-    this.msalInstance = new Msal.UserAgentApplication({
-      navigateToLoginRequestUrl: false,
+    this.msalInstance = new UserAgentApplication({
       cache: {
         cacheLocation: "sessionStorage",
         storeAuthStateInCookie: isIE()
       },
-      ...props.msalConfig
+      auth: {
+        ...props.msalConfig.auth,
+        navigateToLoginRequestUrl: false,
+        validateAuthority: true
+      }
     });
 
     this.state = {};
   }
 
-  componentWillMount() {
+  componentDidMount() {
     const { onAuthError } = this.props;
 
     const hasAccessToken = expiry("access") > 0;

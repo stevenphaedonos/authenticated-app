@@ -52,21 +52,15 @@ export default [
       globals: {
         react: "React",
         "react-dom": "ReactDOM",
-        antd: "antd"
-      }
+        antd: "antd",
+        uuid: "uuid"
+      },
     },
+    external: ['crypto', 'uuid'],
     plugins: [
       del({ targets: "build/*" }),
       ...commonPlugins(),
       env === "production" && terser()
     ]
-  },
-  {
-    input: getChunks("src"),
-    output: [
-      { dir: "esm", format: "esm", sourcemap: true },
-      { dir: "cjs", format: "cjs", exports: "named", sourcemap: true }
-    ],
-    plugins: [del({ targets: ["esm/*", "cjs/*"] }), ...commonPlugins()]
   }
 ];

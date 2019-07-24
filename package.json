@@ -1,7 +1,7 @@
 {
   "name": "react-msal-jwt",
   "description": "A React Higher Order Component that provides MSAL authentication, JWT token refresh/expiry utilities, and a customizable landing page",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "repository": {
     "type": "git",
     "url": "https://github.com/stevenphaedonos/react-msal-jwt.git"
@@ -27,25 +27,26 @@
     "antd": ">= 3.0.0"
   },
   "dependencies": {
-    "msal": "^1.0.2"
+    "msal": "^1.1.1"
   },
   "devDependencies": {
-    "@babel/core": "^7.4.3",
-    "@babel/plugin-proposal-class-properties": "^7.4.0",
-    "@babel/preset-env": "^7.4.3",
+    "@babel/core": "^7.5.5",
+    "@babel/plugin-proposal-class-properties": "^7.5.5",
+    "@babel/preset-env": "^7.5.5",
     "@babel/preset-react": "^7.0.0",
     "antd": "^3.16.1",
+    "crypto": "^1.0.1",
     "react": "^16.8.6",
     "react-dom": "^16.8.6",
-    "rollup": "^1.8.0",
-    "rollup-plugin-babel": "^4.3.2",
-    "rollup-plugin-commonjs": "^9.3.0",
-    "rollup-plugin-delete": "^0.2.2",
-    "rollup-plugin-node-resolve": "^4.0.1",
+    "rollup": "^1.17.0",
+    "rollup-plugin-babel": "^4.3.3",
+    "rollup-plugin-commonjs": "^10.0.1",
+    "rollup-plugin-delete": "^1.0.0",
+    "rollup-plugin-node-resolve": "^5.2.0",
     "rollup-plugin-peer-deps-external": "^2.2.0",
     "rollup-plugin-postcss": "^2.0.3",
-    "rollup-plugin-replace": "^2.1.1",
-    "rollup-plugin-terser": "^4.0.4",
+    "rollup-plugin-replace": "^2.2.0",
+    "rollup-plugin-terser": "^5.1.1",
     "rollup-watch": "^4.3.1"
   },
   "browserslist": [
